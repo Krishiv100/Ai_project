@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="QCAS-DF — Quality-Conditioned Adaptive Spectral Deepfake Detection" />
+  <title>QCAS-DF Deepfake Detector</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="grid-bg"></div>
+
+  <header class="topbar">
+    <a class="brand" href="#top" aria-label="QCAS-DF home">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 48 48">
+          <path d="M24 5 39 11v11c0 10.3-6.1 17.6-15 21-8.9-3.4-15-10.7-15-21V11l15-6Z"/>
+          <path class="brand-eye" d="M14.5 24s3.6-6 9.5-6 9.5 6 9.5 6-3.6 6-9.5 6-9.5-6-9.5-6Z"/>
+          <circle class="brand-eye" cx="24" cy="24" r="2.8"/>
+        </svg>
+      </span>
+      <span>
+        <strong>QCAS-DF</strong>
+        <small>Deepfake Detection</small>
+      </span>
+    </a>
+
+    <nav class="nav">
+      <a href="#detector">Detector</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#about">About</a>
+      <span class="api-dot" id="apiDot"></span>
+      <span class="api-label" id="apiLabel">Checking API…</span>
+    </nav>
+  </header>
+
+  <main id="top">
+    <section class="hero">
+      <div class="hero-copy">
+        <div class="eyebrow">Research Prototype · QCAS-DF</div>
+        <h1>Analyze media for <span>deepfake signals</span>.</h1>
+        <p>
+          Upload an image or video. QCAS-DF combines spatial texture evidence,
+          adaptive frequency analysis, and input-quality awareness to estimate
+          whether the media is real or manipulated.
+        </p>
+        <div class="hero-actions">
+          <a class="btn primary" href="#detector">Try the detector</a>
+          <a class="btn ghost" href="#architecture">How it works</a>
+        </div>
+        <div class="hero-stats">
+          <div><strong>2-stream</strong><span>Spatial + spectral</span></div>
+          <div><strong>YCbCr</strong><span>Frequency modeling</span></div>
+          <div><strong>Adaptive</strong><span>Quality-aware fusion</span></div>
+        </div>
+      </div>
+
+      <div class="hero-visual" aria-label="QCAS-DF architecture visualization">
+        <div class="orb orb-a"></div>
+        <div class="orb orb-b"></div>
+        <div class="model-card">
+          <div class="model-card-head">
+            <span>QCAS-DF Engine</span>
+            <span class="status-pill">READY</span>
+          </div>
+          <div class="signal">
+            <div class="signal-line l1"></div>
+            <div class="signal-line l2"></div>
+            <div class="signal-line l3"></div>
+            <div class="signal-line l4"></div>
+            <div class="signal-line l5"></div>
+          </div>
+          <div class="stream-row">
+            <div class="stream"><b>S</b><span>Spatial texture</span></div>
+            <div class="stream"><b>F</b><span>Spectral cues</span></div>
+            <div class="stream"><b>Q</b><span>Quality estimate</span></div>
+          </div>
+          <div class="fusion">
+            <span>Adaptive fusion</span>
+            <div class="fusion-bar"><i></i></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="detector-wrap" id="detector">
+      <div class="section-heading">
+        <div>
+          <span class="eyebrow">Interactive detector</span>
+          <h2>Upload and analyze</h2>
+        </div>
+        <p>Images are face-cropped before inference. Videos are sampled across time and aggregated.</p>
+      </div>
+
+      <div class="detector">
+        <div class="tabs" role="tablist">
+          <button class="tab active" data-tab="image" role="tab" aria-selected="true">Image</button>
+          <button class="tab" data-tab="video" role="tab" aria-selected="false">Video</button>
+        </div>
+
+        <div class="panel active" id="imagePanel">
+          <div class="upload-grid">
+            <div class="dropzone" id="imageDrop">
+              <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp,image/bmp" hidden />
+              <div class="drop-icon">↑</div>
+              <h3>Drop an image here</h3>
+              <p>JPG, PNG, WEBP or BMP</p>
+              <button class="btn secondary" id="pickImageBtn" type="button">Choose image</button>
+            </div>
+            <div class="preview-box">
+              <img id="imagePreview" alt="Selected image preview" />
+              <div class="empty-preview" id="imageEmpty">Preview appears here</div>
+            </div>
+          </div>
+          <div class="actions">
+            <button class="btn primary wide" id="analyzeImageBtn" disabled>Analyze image</button>
+            <button class="btn ghost" id="clearImageBtn" disabled>Clear</button>
+          </div>
+        </div>
+
+        <div class="panel" id="videoPanel">
+          <div class="upload-grid">
+            <div class="dropzone" id="videoDrop">
+              <input id="videoInput" type="file" accept="video/mp4,video/webm,video/quicktime,video/x-msvideo" hidden />
+              <div class="drop-icon">▶</div>
+              <h3>Drop a video here</h3>
+              <p>MP4, WEBM, MOV or AVI</p>
+              <button class="btn secondary" id="pickVideoBtn" type="button">Choose video</button>
+            </div>
+            <div class="preview-box">
+              <video id="videoPreview" controls></video>
+              <div class="empty-preview" id="videoEmpty">Video preview appears here</div>
+            </div>
+          </div>
+          <div class="actions">
+            <button class="btn primary wide" id="analyzeVideoBtn" disabled>Analyze video</button>
+            <button class="btn ghost" id="clearVideoBtn" disabled>Clear</button>
+          </div>
+        </div>
+
+        <div class="progress-card hidden" id="progressCard" aria-live="polite">
+          <div class="spinner"></div>
+          <div>
+            <strong id="progressTitle">Analyzing…</strong>
+            <p id="progressText">Running face detection and QCAS-DF inference.</p>
+          </div>
+        </div>
+
+        <div class="error-card hidden" id="errorCard" aria-live="assertive"></div>
+
+        <div class="results hidden" id="results">
+          <div class="result-main">
+            <div class="verdict">
+              <span class="verdict-label">Prediction</span>
+              <strong id="prediction">—</strong>
+              <span id="confidenceText">—</span>
+            </div>
+            <div class="gauge-wrap">
+              <div class="gauge" id="gauge">
+                <div class="gauge-center">
+                  <strong id="fakeProbability">0%</strong>
+                  <span>fake probability</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="metric-grid">
+            <article class="metric">
+              <span>Threshold</span>
+              <strong id="threshold">—</strong>
+            </article>
+            <article class="metric">
+              <span>Quality / degradation</span>
+              <strong id="quality">—</strong>
+            </article>
+            <article class="metric">
+              <span>Spatial gate</span>
+              <strong id="spatialGate">—</strong>
+            </article>
+            <article class="metric">
+              <span>Spectral gate</span>
+              <strong id="spectralGate">—</strong>
+            </article>
+            <article class="metric">
+              <span>Boundary b1</span>
+              <strong id="boundary1">—</strong>
+            </article>
+            <article class="metric">
+              <span>Boundary b2</span>
+              <strong id="boundary2">—</strong>
+            </article>
+          </div>
+
+          <div class="face-results" id="faceResults">
+            <div>
+              <h3>Detected face</h3>
+              <p>The face crop actually passed to the model.</p>
+            </div>
+            <div class="face-images">
+              <img id="facePreview" alt="Detected face preview" />
+            </div>
+          </div>
+
+          <div class="video-results hidden" id="videoResults">
+            <div class="video-result-head">
+              <div>
+                <h3>Sampled video faces</h3>
+                <p id="framesAnalyzed">—</p>
+              </div>
+            </div>
+            <div class="gallery" id="videoGallery"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="architecture" id="architecture">
+      <div class="section-heading">
+        <div>
+          <span class="eyebrow">Model architecture</span>
+          <h2>What QCAS-DF analyzes</h2>
+        </div>
+        <p>The model combines complementary evidence instead of relying on one visual cue.</p>
+      </div>
+
+      <div class="architecture-grid">
+        <article class="arch-card">
+          <span class="arch-num">01</span>
+          <h3>Quality estimation</h3>
+          <p>Estimates input degradation so the spectral analysis can adapt to image quality and compression.</p>
+        </article>
+        <article class="arch-card">
+          <span class="arch-num">02</span>
+          <h3>Spatial differences</h3>
+          <p>Uses local average-difference texture cues to expose subtle spatial inconsistencies.</p>
+        </article>
+        <article class="arch-card">
+          <span class="arch-num">03</span>
+          <h3>Adaptive spectrum</h3>
+          <p>Transforms YCbCr channels to frequency space and learns ordered low/mid/high boundaries.</p>
+        </article>
+        <article class="arch-card">
+          <span class="arch-num">04</span>
+          <h3>Dynamic fusion</h3>
+          <p>Weights spatial and spectral features based on content and estimated input quality.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="about" id="about">
+      <div>
+        <span class="eyebrow">Important</span>
+        <h2>Research prototype, not forensic proof.</h2>
+      </div>
+      <p>
+        A prediction is a model estimate. Performance can change with compression,
+        unseen manipulation methods, image quality, dataset shift and face-detection failures.
+        Use results as supporting evidence, not as definitive authentication.
+      </p>
+    </section>
+  </main>
+
+  <footer>
+    <span>QCAS-DF</span>
+    <span>Quality-Conditioned Adaptive Spectral Deepfake Detection</span>
+  </footer>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
