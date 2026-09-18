@@ -1,6 +1,6 @@
-// DEPLOYMENT CONFIGURATION
-// 1) Local backend:
-window.QCAS_API_BASE = "http://localhost:8000";
+const PRODUCTION_API = "https://qcas-df-api.onrender.com";
 
-// 2) After deploying the backend, replace the line above with e.g.
-// window.QCAS_API_BASE = "https://your-backend.example.com";
+window.QCAS_API_BASE =
+  (location.hostname === "localhost" || location.hostname === "127.0.0.1")
+    ? "http://localhost:8000"
+    : PRODUCTION_API;
