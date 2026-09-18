@@ -5,6 +5,7 @@ import io
 import json
 import os
 import tempfile
+import gc
 from pathlib import Path
 from typing import List
 
@@ -26,11 +27,13 @@ CHECKPOINT = MODEL_DIR / "best.pt"
 CALIBRATION_FILE = MODEL_DIR / "calibration.json"
 
 IMAGE_SIZE = int(os.getenv("IMAGE_SIZE", "224"))
-VIDEO_SAMPLE_FRAMES = int(os.getenv("VIDEO_SAMPLE_FRAMES", "20"))
+VIDEO_SAMPLE_FRAMES = int(os.getenv("VIDEO_SAMPLE_FRAMES", "3"))
 MAX_IMAGE_MB = int(os.getenv("MAX_IMAGE_MB", "15"))
 MAX_VIDEO_MB = int(os.getenv("MAX_VIDEO_MB", "150"))
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+torch.set_num_threads(1)
 
 allowed_origins = [
     x.strip()
@@ -247,82 +250,252 @@ async def analyze_image(file: UploadFile = File(...)):
 async def analyze_video(file: UploadFile = File(...)):
     require_model()
 
-    if not file.content_type or not file.content_type.startswith("video/"):
-        raise HTTPException(status_code=400, detail="Please upload a video.")
+    suffix = Path(file.filename or "upload.mp4").suffix.lower()
 
-    suffix = Path(file.filename or "upload.mp4").suffix or ".mp4"
+    allowed = {".mp4", ".webm", ".mov", ".avi", ".mkv"}
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+    if suffix not in allowed:
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported video format."
+        )
+
+    # Save uploaded video
+    with tempfile.NamedTemporaryFile(
+        delete=False,
+        suffix=suffix
+    ) as tmp:
+
         total = 0
-        while chunk := await file.read(1024 * 1024):
+
+        while True:
+            chunk = await file.read(1024 * 1024)
+
+            if not chunk:
+                break
+
             total += len(chunk)
+
             if total > MAX_VIDEO_MB * 1024 * 1024:
                 tmp.close()
                 Path(tmp.name).unlink(missing_ok=True)
+
                 raise HTTPException(
                     status_code=413,
-                    detail=f"Video is larger than the {MAX_VIDEO_MB} MB limit.",
+                    detail=f"Video larger than {MAX_VIDEO_MB} MB."
                 )
+
             tmp.write(chunk)
+
         temp_path = Path(tmp.name)
 
     cap = cv2.VideoCapture(str(temp_path))
 
+    if not cap.isOpened():
+        temp_path.unlink(missing_ok=True)
+
+        raise HTTPException(
+            status_code=400,
+            detail="Could not open video."
+        )
+
     try:
-        n_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        indices = uniform_indices(n_frames, VIDEO_SAMPLE_FRAMES)
-        targets = set(indices)
+
+        n_frames = int(
+            cap.get(cv2.CAP_PROP_FRAME_COUNT)
+        )
+
+        if n_frames <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Video contains no readable frames."
+            )
+
+        # ONLY sample 3 frames instead of decoding entire video
+        sample_count = min(
+            VIDEO_SAMPLE_FRAMES,
+            n_frames
+        )
+
+        indices = np.linspace(
+            0,
+            n_frames - 1,
+            sample_count
+        ).astype(int)
 
         frame_results = []
         sample_faces = []
-        i = 0
 
-        while True:
+        for frame_index in indices:
+
+            # Jump directly to desired frame
+            cap.set(
+                cv2.CAP_PROP_POS_FRAMES,
+                int(frame_index)
+            )
+
             ok, frame = cap.read()
+
             if not ok:
-                break
+                continue
 
-            if i in targets:
-                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                pil = Image.fromarray(rgb)
-                face, _ = crop_largest_face(pil)
+            # Reduce frame resolution BEFORE MTCNN
+            h, w = frame.shape[:2]
 
-                if face is not None:
-                    frame_results.append(predict_face(face))
-                    if len(sample_faces) < 8:
-                        sample_faces.append(image_to_data_url(face, quality=84))
+            max_side = 480
 
-            i += 1
+            if max(h, w) > max_side:
+
+                scale = max_side / max(h, w)
+
+                new_w = max(
+                    1,
+                    int(w * scale)
+                )
+
+                new_h = max(
+                    1,
+                    int(h * scale)
+                )
+
+                frame = cv2.resize(
+                    frame,
+                    (new_w, new_h),
+                    interpolation=cv2.INTER_AREA
+                )
+
+            rgb = cv2.cvtColor(
+                frame,
+                cv2.COLOR_BGR2RGB
+            )
+
+            pil = Image.fromarray(rgb)
+
+            face, _ = crop_largest_face(pil)
+
+            if face is not None:
+
+                result = predict_face(face)
+
+                frame_results.append(result)
+
+                # Keep max 3 previews
+                if len(sample_faces) < 3:
+                    sample_faces.append(
+                        image_to_data_url(
+                            face,
+                            quality=75
+                        )
+                    )
+
+            # Release memory after each frame
+            del frame
+            del rgb
+            del pil
+
+            if face is not None:
+                del face
+
+            gc.collect()
+
     finally:
-        cap.release()
-        temp_path.unlink(missing_ok=True)
 
-    if not frame_results:
-        raise HTTPException(
-            status_code=422,
-            detail="No usable faces were detected in the sampled video frames.",
+        cap.release()
+
+        temp_path.unlink(
+            missing_ok=True
         )
 
-    fake_probs = [r["fake_probability"] for r in frame_results]
-    mean_fake = float(np.mean(fake_probs))
-    prediction = "FAKE" if mean_fake >= threshold else "REAL"
-    confidence = mean_fake if prediction == "FAKE" else 1.0 - mean_fake
+        gc.collect()
 
-    def mean(key: str) -> float:
-        return float(np.mean([r[key] for r in frame_results]))
+    if not frame_results:
+
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "No usable faces were detected "
+                "in the sampled video frames."
+            )
+        )
+
+    fake_probs = [
+        r["fake_probability"]
+        for r in frame_results
+    ]
+
+    mean_fake = float(
+        np.mean(fake_probs)
+    )
+
+    prediction = (
+        "FAKE"
+        if mean_fake >= threshold
+        else "REAL"
+    )
+
+    confidence = (
+        mean_fake
+        if prediction == "FAKE"
+        else 1.0 - mean_fake
+    )
+
+    def mean_value(key):
+
+        return float(
+            np.mean([
+                r[key]
+                for r in frame_results
+            ])
+        )
 
     return {
-        "prediction": prediction,
-        "video_fake_probability": mean_fake,
-        "confidence": confidence,
-        "threshold": float(threshold),
-        "faces_analyzed": len(frame_results),
-        "frames_sampled": len(indices),
-        "mean_estimated_degradation": mean("estimated_degradation"),
-        "mean_spatial_gate": mean("spatial_gate"),
-        "mean_spectral_gate": mean("spectral_gate"),
-        "mean_b1": mean("frequency_boundary_1"),
-        "mean_b2": mean("frequency_boundary_2"),
-        "sample_faces": sample_faces,
-        "device": str(DEVICE),
+
+        "prediction":
+            prediction,
+
+        "video_fake_probability":
+            mean_fake,
+
+        "confidence":
+            confidence,
+
+        "threshold":
+            float(threshold),
+
+        "faces_analyzed":
+            len(frame_results),
+
+        "frames_sampled":
+            len(indices),
+
+        "mean_estimated_degradation":
+            mean_value(
+                "estimated_degradation"
+            ),
+
+        "mean_spatial_gate":
+            mean_value(
+                "spatial_gate"
+            ),
+
+        "mean_spectral_gate":
+            mean_value(
+                "spectral_gate"
+            ),
+
+        "mean_b1":
+            mean_value(
+                "frequency_boundary_1"
+            ),
+
+        "mean_b2":
+            mean_value(
+                "frequency_boundary_2"
+            ),
+
+        "sample_faces":
+            sample_faces,
+
+        "device":
+            str(DEVICE)
     }
